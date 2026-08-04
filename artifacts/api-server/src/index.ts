@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startBot } from "./telegram/bot";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +23,10 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+});
+
+// Start the Luna Telegram bot
+startBot().catch((err) => {
+  logger.error({ err }, "Failed to start Telegram bot");
+  process.exit(1);
 });
