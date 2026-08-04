@@ -13,10 +13,15 @@ import {
 
 const TYPING_DELAY_MS = 800;
 
-function createOpenAIClient(): OpenAI {
-  const apiKey = process.env["OPENAI_API_KEY"];
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
-  return new OpenAI({ apiKey });
+// Groq is OpenAI-compatible — free API, no credit card needed
+// Get your key at: https://console.groq.com
+function createGroqClient(): OpenAI {
+  const apiKey = process.env["GROQ_API_KEY"];
+  if (!apiKey) throw new Error("GROQ_API_KEY is not set. Get a free key at https://console.groq.com");
+  return new OpenAI({
+    apiKey,
+    baseURL: "https://api.groq.com/openai/v1",
+  });
 }
 
 function buildSystemPrompt(chatId: number): string {
@@ -28,11 +33,11 @@ function buildSystemPrompt(chatId: number): string {
 }
 
 async function getLunaReply(chatId: number, userText: string): Promise<string> {
-  const openai = createOpenAIClient();
+  const groq = createGroqClient();
   const state = addUserMessage(chatId, userText);
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+  const response = await groq.chat.completions.create({
+    model: "llama-3.3-70b-versatile",  // free, fast, less restricted
     max_tokens: 512,
     messages: [
       { role: "system", content: buildSystemPrompt(chatId) },
@@ -155,13 +160,41 @@ export function createBot(): Telegraf {
 }
 
 export async function startBot(): Promise<void> {
-  const bot = createBot();
   logger.info("Starting Luna Telegram bot (long polling)...");
 
-  // Graceful shutdown
-  process.once("SIGINT", () => bot.stop("SIGINT"));
-  process.once("SIGTERM", () => bot.stop("SIGTERM"));
+  // Retry loop — handles 409 conflicts when a previous instance is still
+  // connected (common on restarts). Waits and retries until the old instance
+  // releases the polling session.
+  const MAX_RETRIES = 10;
+  const RETRY_DELAY_MS = 5000;
 
-  await bot.launch();
-  logger.info("Luna bot is live ✨");
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const bot = createBot();
+
+    process.once("SIGINT", () => bot.stop("SIGINT"));
+    process.once("SIGTERM", () => bot.stop("SIGTERM"));
+
+    try {
+      await bot.launch();
+      logger.info("Luna bot is live ✨");
+      return;
+    } catch (err: unknown) {
+      const isTelegramConflict =
+        err instanceof Error &&
+        err.message.includes("409") &&
+        err.message.includes("Conflict");
+
+      if (isTelegramConflict && attempt < MAX_RETRIES) {
+        logger.warn(
+          { attempt, maxRetries: MAX_RETRIES },
+          `Telegram 409 conflict (another instance still running). Retrying in ${RETRY_DELAY_MS / 1000}s...`
+        );
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        continue;
+      }
+
+      // Non-conflict error or out of retries — propagate
+      throw err;
+    }
+  }
 }

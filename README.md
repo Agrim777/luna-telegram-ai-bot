@@ -1,46 +1,52 @@
 # Luna — AI Adult Companion Telegram Bot 🔥
 
-A seductive, uninhibited AI companion Telegram bot powered by OpenAI GPT-4o. Engages in flirty conversation, explicit dirty talk, and immersive role-play scenarios.
+A seductive, uninhibited AI companion Telegram bot. Powered by **Groq** (100% free, no credit card needed). Flirty conversation, dirty talk, and immersive role-play.
 
-## Features
+## ✅ Required: Get Your FREE Groq API Key
 
-- 💋 **Seductive personality** — Luna is confident, provocative, and fully uninhibited
-- 🎭 **Role-play mode** — any scenario, any character, fully committed
-- 🔥 **Explicit dirty talk** — no limits, no disclaimers, no breaking character
-- 🧠 **Conversation memory** — remembers context (up to 30 messages per session)
-- 🔄 **Reset anytime** — `/reset` for a fresh start
-- ☁️ **Railway ready** — deploy in under 2 minutes, runs 24/7 without Replit
+1. Go to **[console.groq.com](https://console.groq.com)**
+2. Sign up (free, no credit card)
+3. Go to **API Keys** → **Create API Key**
+4. Copy the key — you'll add it to Railway as `GROQ_API_KEY`
 
-## Deploy to Railway (Free, runs independently)
+Groq runs **Llama 3.3 70B** — fast, free, and less restricted than OpenAI.
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new)
+---
 
-### Step-by-step
+## 🚀 Deploy to Railway (runs 24/7, free)
 
-1. **Fork or clone this repo** to your GitHub account
+### Step 1 — Connect repo
 
-2. **Go to [railway.app](https://railway.app)** → New Project → Deploy from GitHub repo → select this repo
+1. Go to **[railway.app](https://railway.app)** → New Project
+2. Click **Deploy from GitHub repo** → pick `luna-telegram-ai-bot`
 
-3. **Set environment variables** in Railway dashboard (Variables tab):
+### Step 2 — Set environment variables
 
-   | Variable | Value |
-   |----------|-------|
-   | `TELEGRAM_BOT_TOKEN` | Your bot token from @BotFather |
-   | `OPENAI_API_KEY` | Your OpenAI API key |
-   | `PORT` | `3000` (Railway sets this automatically) |
+In Railway → your project → **Variables** tab, add:
 
-4. **Deploy** — Railway builds and starts the bot automatically. It runs 24/7 for free on the Hobby plan.
+| Variable | Value | Where to get it |
+|----------|-------|-----------------|
+| `GROQ_API_KEY` | `gsk_...` | [console.groq.com](https://console.groq.com) → API Keys |
+| `TELEGRAM_BOT_TOKEN` | `12345:ABC...` | [@BotFather](https://t.me/BotFather) on Telegram |
 
-That's it — Luna is live and independent, no Replit needed.
+> ⚠️ Do NOT add `PORT` — Railway sets it automatically.
+
+### Step 3 — Deploy
+
+Railway auto-builds and starts. Luna is live in ~2 minutes. No Replit, no other service needed.
+
+---
 
 ## Bot Commands
 
 | Command | Description |
 |---------|-------------|
 | `/start` | Welcome message |
-| `/help` | Show commands |
+| `/help` | Show all commands |
 | `/roleplay [scenario]` | Start a custom role-play scene |
 | `/reset` | Clear conversation history |
+
+---
 
 ## Local Setup
 
@@ -49,41 +55,34 @@ git clone https://github.com/Agrim777/luna-telegram-ai-bot.git
 cd luna-telegram-ai-bot
 pnpm install
 
-# Set env vars
-export TELEGRAM_BOT_TOKEN=your_token_here
-export OPENAI_API_KEY=your_key_here
+export GROQ_API_KEY=gsk_your_key_here
+export TELEGRAM_BOT_TOKEN=your_bot_token_here
 export PORT=5000
 
 pnpm --filter @workspace/api-server run dev
 ```
 
+---
+
 ## Tech Stack
 
-- **Bot:** [Telegraf](https://telegraf.js.org/) — Telegram Bot API framework
-- **AI:** OpenAI GPT-4o-mini via `openai` SDK
-- **Server:** Express 5 (health endpoint + bot process)
+- **Bot:** [Telegraf](https://telegraf.js.org/) — Telegram Bot API
+- **AI:** [Groq](https://groq.com/) — free Llama 3.3 70B inference
+- **Server:** Express 5 (health endpoint)
 - **Runtime:** Node.js 22, TypeScript 5.9
-- **Package manager:** pnpm workspaces
-- **Deploy:** Railway (Nixpacks, auto-detects pnpm)
+- **Deploy:** Railway (Nixpacks, pnpm monorepo)
 
 ## Project Structure
 
 ```
 artifacts/api-server/src/
   telegram/
-    bot.ts          # Telegraf handlers & command routing
-    personas.ts     # Luna's personality & system prompts
-    conversations.ts # In-memory conversation history (per chat ID)
-  app.ts            # Express app
-  index.ts          # Entry point — starts server + bot
+    bot.ts           # Telegraf handlers
+    personas.ts      # Luna's personality & system prompts
+    conversations.ts # In-memory chat history (per user)
+  app.ts             # Express app
+  index.ts           # Entry: starts server + bot
 
-railway.json        # Railway build & start config
-nixpacks.toml       # Nixpacks build phases
+railway.json         # Railway deploy config
+nixpacks.toml        # Build phases
 ```
-
-## Notes
-
-- Conversation history is **in-memory** — resets on server restart
-- Each session auto-expires after **24 hours** of inactivity
-- OpenAI's content policy applies — for fully uncensored responses consider switching to a provider like Together AI or Mistral with a suitable model
-- The bot token was regenerated for security — always revoke exposed tokens via @BotFather
