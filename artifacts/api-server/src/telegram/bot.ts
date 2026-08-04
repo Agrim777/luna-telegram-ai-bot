@@ -1,57 +1,84 @@
 import { Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
-import OpenAI from "openai";
-import { logger } from "../lib/logger.js";
-import { LUNA_PERSONA, getRolePlaySystemPrompt } from "./personas.js";
 import {
-  addUserMessage,
-  addAssistantMessage,
-  getState,
-  resetConversation,
-  setRolePlay,
-} from "./conversations.js";
+  GoogleGenerativeAI,
+  HarmCategory,
+  HarmBlockThreshold,
+  type ChatSession,
+} from "@google/generative-ai";
+import { logger } from "../lib/logger.js";
+import { LUNA_SYSTEM_PROMPT, getRolePlaySystemPrompt } from "./personas.js";
 
-const TYPING_DELAY_MS = 800;
+// ─── Gemini Client ────────────────────────────────────────────────────────────
 
-// Groq is OpenAI-compatible — free API, no credit card needed
-// Get your key at: https://console.groq.com
-function createGroqClient(): OpenAI {
-  const apiKey = process.env["GROQ_API_KEY"];
-  if (!apiKey) throw new Error("GROQ_API_KEY is not set. Get a free key at https://console.groq.com");
-  return new OpenAI({
-    apiKey,
-    baseURL: "https://api.groq.com/openai/v1",
+const SAFETY_SETTINGS = [
+  { category: HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+];
+
+function createGeminiModel(systemInstruction: string) {
+  const apiKey = process.env["GEMINI_API_KEY"];
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+  const genAI = new GoogleGenerativeAI(apiKey);
+  return genAI.getGenerativeModel({
+    model: "gemini-1.5-flash",
+    systemInstruction,
+    safetySettings: SAFETY_SETTINGS,
   });
 }
 
-function buildSystemPrompt(chatId: number): string {
-  const state = getState(chatId);
-  if (state.rolePlayScenario) {
-    return getRolePlaySystemPrompt(state.rolePlayScenario, LUNA_PERSONA);
+// ─── Session Store ────────────────────────────────────────────────────────────
+
+interface Session {
+  chat: ChatSession;
+  rolePlay: string | null;
+  lastActivity: number;
+}
+
+const sessions = new Map<number, Session>();
+const SESSION_TTL = 24 * 60 * 60 * 1000;
+
+function getSession(chatId: number): Session {
+  const existing = sessions.get(chatId);
+  if (existing && Date.now() - existing.lastActivity < SESSION_TTL) {
+    existing.lastActivity = Date.now();
+    return existing;
   }
-  return LUNA_PERSONA.systemPrompt;
+  const model = createGeminiModel(LUNA_SYSTEM_PROMPT);
+  const session: Session = {
+    chat: model.startChat({ history: [] }),
+    rolePlay: null,
+    lastActivity: Date.now(),
+  };
+  sessions.set(chatId, session);
+  return session;
+}
+
+function startRolePlay(chatId: number, scenario: string): Session {
+  const prompt = getRolePlaySystemPrompt(scenario, { name: "Luna", systemPrompt: LUNA_SYSTEM_PROMPT });
+  const model = createGeminiModel(prompt);
+  const session: Session = {
+    chat: model.startChat({ history: [] }),
+    rolePlay: scenario,
+    lastActivity: Date.now(),
+  };
+  sessions.set(chatId, session);
+  return session;
+}
+
+function clearSession(chatId: number) {
+  sessions.delete(chatId);
 }
 
 async function getLunaReply(chatId: number, userText: string): Promise<string> {
-  const groq = createGroqClient();
-  const state = addUserMessage(chatId, userText);
-
-  const response = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",  // free, fast, less restricted
-    max_tokens: 512,
-    messages: [
-      { role: "system", content: buildSystemPrompt(chatId) },
-      ...state.messages,
-    ],
-  });
-
-  const reply =
-    response.choices[0]?.message?.content?.trim() ??
-    "Hmm, I got a little lost in thought... say that again? 😏";
-
-  addAssistantMessage(chatId, reply);
-  return reply;
+  const session = getSession(chatId);
+  const result = await session.chat.sendMessage(userText);
+  return result.response.text().trim();
 }
+
+// ─── Bot ──────────────────────────────────────────────────────────────────────
 
 export function createBot(): Telegraf {
   const token = process.env["TELEGRAM_BOT_TOKEN"];
@@ -59,97 +86,55 @@ export function createBot(): Telegraf {
 
   const bot = new Telegraf(token);
 
-  // /start — greeting
   bot.start(async (ctx) => {
-    const firstName = ctx.from?.first_name ?? "you";
+    const name = ctx.from?.first_name ?? "you";
     await ctx.reply(
-      `Hey ${firstName}! 💋 I'm *Luna* — your flirty, playful AI companion.\n\n` +
-        `I'm here for fun conversation, spicy banter, or full-on role-play. Whatever mood you're in, I'm in. 😈\n\n` +
-        `A few things I can do:\n` +
-        `• Chat and flirt — just say anything!\n` +
-        `• Start a role-play → /roleplay [describe the scenario]\n` +
-        `• Reset our chat → /reset\n` +
-        `• See this again → /help\n\n` +
-        `So... what's on your mind? 😏`,
+      `Hey ${name}... 💋\n\nI'm *Luna*. Your secret. Your fantasy. Your AI companion — and I'm here for whatever you want.\n\nNo limits. No judgment. Just us 😈\n\nSay anything. Or:\n🎭 /roleplay [scenario]\n🔄 /reset`,
       { parse_mode: "Markdown" }
     );
   });
 
-  // /help
   bot.help(async (ctx) => {
     await ctx.reply(
-      `*Luna's Commands* ✨\n\n` +
-        `💬 *Chat* — just send any message and I'll reply\n` +
-        `🎭 */roleplay [scenario]* — start a role-play (e.g. /roleplay we are strangers at a hotel bar)\n` +
-        `🔄 */reset* — clear our history and start fresh\n` +
-        `ℹ️ */help* — show this menu\n\n` +
-        `No rules, no judgment — just good vibes 😈`,
+      `*Luna's Commands* 🖤\n\n💬 Send any message — I reply\n🎭 /roleplay [scenario] — start a scene\n🔄 /reset — fresh start`,
       { parse_mode: "Markdown" }
     );
   });
 
-  // /roleplay [scenario]
   bot.command("roleplay", async (ctx) => {
     const scenario = ctx.message.text.replace(/^\/roleplay\s*/i, "").trim();
     if (!scenario) {
-      await ctx.reply(
-        "Tell me the scenario! Like: `/roleplay we meet at a masquerade ball and you don't know who I am 🎭`",
-        { parse_mode: "Markdown" }
-      );
+      await ctx.reply("Give me the scene 😏\n\n_e.g. /roleplay strangers at a rooftop bar_", { parse_mode: "Markdown" });
       return;
     }
-
-    setRolePlay(ctx.chat.id, scenario);
-
     await ctx.sendChatAction("typing");
-    await new Promise((r) => setTimeout(r, TYPING_DELAY_MS));
-
-    const opening = await getLunaReply(
-      ctx.chat.id,
-      "Let's begin the role-play. Set the scene and start us off."
-    );
-    await ctx.reply(`🎭 *Role-play started!*\n\n${opening}`, {
-      parse_mode: "Markdown",
-    });
+    startRolePlay(ctx.chat.id, scenario);
+    const opening = await getLunaReply(ctx.chat.id, "Set the scene and start us off. Be vivid and immersive.");
+    await ctx.reply(`🎭 *Scene begins...*\n\n${opening}`, { parse_mode: "Markdown" });
   });
 
-  // /reset
   bot.command("reset", async (ctx) => {
-    resetConversation(ctx.chat.id);
-    await ctx.reply(
-      "Fresh start! 🔄 All wiped — our little secrets stay between us 😉\n\nSo, what are we getting into now?",
-    );
+    clearSession(ctx.chat.id);
+    await ctx.reply("Wiped clean 🔄 What are we getting into now? 😈");
   });
 
-  // Regular messages
   bot.on(message("text"), async (ctx) => {
-    const userText = ctx.message.text;
     const chatId = ctx.chat.id;
-
+    await ctx.sendChatAction("typing");
+    const typingLoop = setInterval(() => { ctx.sendChatAction("typing").catch(() => {}); }, 4000);
     try {
-      await ctx.sendChatAction("typing");
-      // Stagger typing indicator while waiting for response
-      const typingInterval = setInterval(() => {
-        ctx.sendChatAction("typing").catch(() => {});
-      }, 4000);
-
-      const reply = await getLunaReply(chatId, userText);
-      clearInterval(typingInterval);
-
+      const reply = await getLunaReply(chatId, ctx.message.text);
+      clearInterval(typingLoop);
       await ctx.reply(reply);
     } catch (err) {
-      logger.error({ err, chatId }, "Error generating Luna reply");
-      await ctx.reply(
-        "Oops, something went a little sideways on my end... try again? 🙈"
-      );
+      clearInterval(typingLoop);
+      logger.error({ err, chatId }, "Luna reply error");
+      await ctx.reply("Something got in the way 😤 Try again — I'm not going anywhere 💋");
     }
   });
 
-  // Handle photo/sticker/etc with a playful nudge
   bot.on("message", async (ctx) => {
-    await ctx.reply(
-      "Ooh, interesting choice 👀 But I'm a words girl — talk to me 😘"
-    );
+    await ctx.reply("Words, baby. Talk to me 😘");
   });
 
   bot.catch((err, ctx) => {
@@ -160,40 +145,24 @@ export function createBot(): Telegraf {
 }
 
 export async function startBot(): Promise<void> {
-  logger.info("Starting Luna Telegram bot (long polling)...");
-
-  // Retry loop — handles 409 conflicts when a previous instance is still
-  // connected (common on restarts). Waits and retries until the old instance
-  // releases the polling session.
+  logger.info("Starting Luna bot (Gemini)...");
   const MAX_RETRIES = 10;
-  const RETRY_DELAY_MS = 5000;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const bot = createBot();
-
     process.once("SIGINT", () => bot.stop("SIGINT"));
     process.once("SIGTERM", () => bot.stop("SIGTERM"));
-
     try {
       await bot.launch();
       logger.info("Luna bot is live ✨");
       return;
     } catch (err: unknown) {
-      const isTelegramConflict =
-        err instanceof Error &&
-        err.message.includes("409") &&
-        err.message.includes("Conflict");
-
-      if (isTelegramConflict && attempt < MAX_RETRIES) {
-        logger.warn(
-          { attempt, maxRetries: MAX_RETRIES },
-          `Telegram 409 conflict (another instance still running). Retrying in ${RETRY_DELAY_MS / 1000}s...`
-        );
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      const is409 = err instanceof Error && err.message.includes("409") && err.message.includes("Conflict");
+      if (is409 && attempt < MAX_RETRIES) {
+        logger.warn({ attempt }, `409 conflict, retrying in 5s...`);
+        await new Promise((r) => setTimeout(r, 5000));
         continue;
       }
-
-      // Non-conflict error or out of retries — propagate
       throw err;
     }
   }

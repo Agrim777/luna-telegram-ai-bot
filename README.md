@@ -1,88 +1,81 @@
 # Luna — AI Adult Companion Telegram Bot 🔥
 
-A seductive, uninhibited AI companion Telegram bot. Powered by **Groq** (100% free, no credit card needed). Flirty conversation, dirty talk, and immersive role-play.
-
-## ✅ Required: Get Your FREE Groq API Key
-
-1. Go to **[console.groq.com](https://console.groq.com)**
-2. Sign up (free, no credit card)
-3. Go to **API Keys** → **Create API Key**
-4. Copy the key — you'll add it to Railway as `GROQ_API_KEY`
-
-Groq runs **Llama 3.3 70B** — fast, free, and less restricted than OpenAI.
+Seductive, uninhibited AI companion. Explicit dirty talk, role-play, no limits.
+Powered by **Google Gemini 1.5 Flash** (free tier). Deployed on **Railway** in minutes.
 
 ---
 
-## 🚀 Deploy to Railway (runs 24/7, free)
+## 🚀 Railway Deploy (Step by Step)
 
-### Step 1 — Connect repo
+### Step 1 — Delete old services
 
-1. Go to **[railway.app](https://railway.app)** → New Project
-2. Click **Deploy from GitHub repo** → pick `luna-telegram-ai-bot`
+In your Railway project, **delete all the crashed services** (api-spec, mockup-sandbox, api-zod, api-client-react, db). Keep only `api-server` or start fresh.
 
-### Step 2 — Set environment variables
+**Why they crashed:** Railway detected every pnpm workspace package. The fix is to point Railway at the `bot/` folder which is fully self-contained.
 
-In Railway → your project → **Variables** tab, add:
+### Step 2 — Create a new service pointing to `bot/`
 
-| Variable | Value | Where to get it |
-|----------|-------|-----------------|
-| `GROQ_API_KEY` | `gsk_...` | [console.groq.com](https://console.groq.com) → API Keys |
-| `TELEGRAM_BOT_TOKEN` | `12345:ABC...` | [@BotFather](https://t.me/BotFather) on Telegram |
+1. Railway dashboard → **New Service** → **GitHub Repo** → pick `luna-telegram-ai-bot`
+2. In service settings → **Source** → **Root Directory** → type `bot`
+3. Railway will re-detect — it will find only the `bot/package.json`
 
-> ⚠️ Do NOT add `PORT` — Railway sets it automatically.
+### Step 3 — Set environment variables
 
-### Step 3 — Deploy
+In the service → **Variables** tab:
 
-Railway auto-builds and starts. Luna is live in ~2 minutes. No Replit, no other service needed.
+| Variable | Value |
+|----------|-------|
+| `TELEGRAM_BOT_TOKEN` | from [@BotFather](https://t.me/BotFather) |
+| `GEMINI_API_KEY` | from [aistudio.google.com](https://aistudio.google.com) → Get API Key |
+
+### Step 4 — Deploy
+
+Railway builds and starts automatically. Luna is live in ~1 minute. ✨
+
+---
+
+## 💻 Run Locally
+
+```bash
+git clone https://github.com/Agrim777/luna-telegram-ai-bot.git
+cd luna-telegram-ai-bot/bot
+npm install
+
+# Create .env file
+echo "TELEGRAM_BOT_TOKEN=your_token" > .env
+echo "GEMINI_API_KEY=your_key" >> .env
+
+npm run dev
+```
 
 ---
 
 ## Bot Commands
 
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
-| `/start` | Welcome message |
-| `/help` | Show all commands |
-| `/roleplay [scenario]` | Start a custom role-play scene |
-| `/reset` | Clear conversation history |
+| `/start` | Wake Luna up |
+| `/help` | Show commands |
+| `/roleplay [scenario]` | Start an immersive role-play |
+| `/reset` | Clear history, fresh start |
 
 ---
 
-## Local Setup
+## Tech
 
-```bash
-git clone https://github.com/Agrim777/luna-telegram-ai-bot.git
-cd luna-telegram-ai-bot
-pnpm install
-
-export GROQ_API_KEY=gsk_your_key_here
-export TELEGRAM_BOT_TOKEN=your_bot_token_here
-export PORT=5000
-
-pnpm --filter @workspace/api-server run dev
-```
-
----
-
-## Tech Stack
-
-- **Bot:** [Telegraf](https://telegraf.js.org/) — Telegram Bot API
-- **AI:** [Groq](https://groq.com/) — free Llama 3.3 70B inference
-- **Server:** Express 5 (health endpoint)
-- **Runtime:** Node.js 22, TypeScript 5.9
-- **Deploy:** Railway (Nixpacks, pnpm monorepo)
+- **Telegram:** [Telegraf](https://telegraf.js.org/) v4
+- **AI:** Google Gemini 1.5 Flash — safety filters disabled
+- **Runtime:** Node.js 22, TypeScript via tsx
+- **Deploy:** Railway (root dir → `bot/`)
 
 ## Project Structure
 
 ```
-artifacts/api-server/src/
-  telegram/
-    bot.ts           # Telegraf handlers
-    personas.ts      # Luna's personality & system prompts
-    conversations.ts # In-memory chat history (per user)
-  app.ts             # Express app
-  index.ts           # Entry: starts server + bot
+bot/                   ← deploy THIS folder on Railway
+  src/index.ts         ← entire bot in one file
+  package.json
+  nixpacks.toml        ← Railway build config
 
-railway.json         # Railway deploy config
-nixpacks.toml        # Build phases
+artifacts/api-server/  ← Replit only (ignore on Railway)
+lib/                   ← Replit only (ignore on Railway)
 ```
